@@ -17,7 +17,7 @@ use base qw(
 
 use vars qw($VERSION);
 
-($VERSION) = '0.1';
+($VERSION) = '0.2';
 
 ########################
 # Driver methods follow
@@ -36,21 +36,31 @@ sub store {
     local $dbh->{RaiseError} = 0;
     local $dbh->{PrintError} = 0;
     do {
-      eval {
-	if( $args->{NoInsert} ) {
-		$dbh->do(qq|UPDATE $table SET $datafield=? WHERE $keyfield=?|,
-		undef, $self->freeze($data), $sid) || die $dbh->errstr,"\n"; # croak ref($dbh)," do failed: ",$dbh->errstr;
-	}
-	else {
-                $dbh->do(qq|REPLACE INTO $table ($keyfield,$datafield) VALUES(?,?)|, 
-                undef, $sid, $self->freeze($data)) || die $dbh->errstr,"\n"; # croak ref($dbh)," do failed: ",$dbh->errstr;
-	}
-        $ok = 1;
-      };
+		eval {
+			if( $args->{NoInsert} ) {
+				$dbh->do(qq|UPDATE $table SET $datafield=? WHERE $keyfield=?|,
+					undef, $self->freeze($data), $sid) || die $dbh->errstr,"\n"; # croak ref($dbh)," do failed: ",$dbh->errstr;
+			}
+			elsif( $args->{NoReplace} ) {
+				my $rows = $dbh->do(qq|UPDATE $table SET $datafield=? WHERE $keyfield=?|,
+					undef, $self->freeze($data), $sid) || die $dbh->errstr,"\n"; # croak ref($dbh)," do failed: ",$dbh->errstr;
+				if( $rows == 0 ) {
+					$dbh->do(qq|INSERT INTO $table ($keyfield,$datafield) VALUES(?,?)|, 
+						undef, $sid, $self->freeze($data)) || die $dbh->errstr,"\n"; # croak ref($dbh)," do failed: ",$dbh->errstr;
+				}
+			}
+			else {
+				$dbh->do(qq|REPLACE INTO $table ($keyfield,$datafield) VALUES(?,?)|, 
+					undef, $sid, $self->freeze($data)) || die $dbh->errstr,"\n"; # croak ref($dbh)," do failed: ",$dbh->errstr;
+			}
+			$ok = 1;
+		};
       if( $@ && $@ =~ m/Table '(.+)' doesn't exist/ && $args->{AutoCreate} ) {
            $exhausted = 1;
            $dbh->do("CREATE TABLE $table ($keyfield VARCHAR(32) NOT NULL PRIMARY KEY, $datafield TEXT NULL)") &&
               carp __PACKAGE__," issued CREATE TABLE $table ($keyfield VARCHAR(32) NOT NULL PRIMARY KEY, $datafield TEXT NULL)";
+			$dbh->do(qq|INSERT INTO $table ($keyfield,$datafield) VALUES(?,?)|, 
+				undef, $sid, $self->freeze($data)) || die $dbh->errstr,"\n"; # croak ref($dbh)," do failed: ",$dbh->errstr;
       }
       elsif( $@ ) {
            $exhausted = 1;
@@ -356,6 +366,13 @@ updates the database field and sets it to NULL, whereas with C<clear> all the
 session fields are cleared but the session object itself is still stored in your
 table's data field).
 
+=head2 NoReplace => 1
+
+Use this option when you want to use INSERT and UPDATE statements instead of a
+REPLACE statement to store sessions.
+
+Thanks to Simon Rees for suggesting this option. 
+
 =head2 AutoCreate => 1
 
 If you specify this option, FlexMySQL will automatically create a table for 
@@ -399,7 +416,7 @@ own CGI::Session subclass. Asking me very nicely will also work.
 
 =head1 COPYRIGHT
 
-CGI::Session::FlexMySQL is Copyright (C) 2004 Jonathan Buhacoff.  All rights reserved.
+CGI::Session::FlexMySQL is Copyright (C) 2004-2005 Jonathan Buhacoff.  All rights reserved.
 
 This library is free software and can be modified and distributed under the same
 terms as Perl itself. 
@@ -446,4 +463,3 @@ L<Apache::Session|Apache::Session> - an alternative to CGI::Session
 =back
 
 =cut
-
